@@ -380,10 +380,13 @@ def export_excel(chunks_df, summary_df, output_file, inactivity_minutes=30):
     # Add total by column (total by developer)
     pivot_table.loc['TOTAL'] = pivot_table.sum(axis=0).round(2)
 
-    # Create pivot by week
+    # Create pivot by week (Saturday start)
     chunks_with_week = chunks_df.copy()
-    chunks_with_week['Week'] = chunks_with_week['Start'].dt.strftime('%Y-W%U')
-    chunks_with_week['Week_Start'] = chunks_with_week['Start'].dt.to_period('W').dt.start_time
+    # Calculate days since last Saturday (Saturday = 5 in dayofweek where Monday = 0)
+    day_of_week = chunks_with_week['Start'].dt.dayofweek
+    days_since_saturday = (day_of_week - 5) % 7
+    chunks_with_week['Week_Start'] = (chunks_with_week['Start'] - pd.to_timedelta(days_since_saturday, unit='D')).dt.normalize()
+    chunks_with_week['Week'] = chunks_with_week['Week_Start'].dt.strftime('%Y-W%U')
 
     pivot_by_week = chunks_with_week.groupby(['Week', 'Week_Start', 'Developer']).agg({
         'Duration (hours)': 'sum',
