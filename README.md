@@ -11,6 +11,18 @@ Access the interactive Streamlit app for easy file uploads and visual analysis.
 streamlit run app.py
 ```
 
+### Deploy to Streamlit Community Cloud (Recommended - Free!)
+1. Go to [share.streamlit.io](https://share.streamlit.io)
+2. Sign in with your GitHub account
+3. Click **"New app"**
+4. Select:
+   - **Repository**: `ProaFilippi/Model-Builder-Work-Review`
+   - **Branch**: `Render-Streamlit-App`
+   - **Main file path**: `app.py`
+5. Click **"Deploy!"**
+
+Your app will be live at: `https://[your-app-name].streamlit.app`
+
 ### Deploy to Render.com
 1. Push this repository to GitHub
 2. Go to [Render.com](https://render.com) → New Web Service
