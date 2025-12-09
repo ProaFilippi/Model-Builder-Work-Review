@@ -59,6 +59,12 @@ def parse_arguments():
         action='store_true',
         help='Exibir apenas resumo por desenvolvedor'
     )
+    parser.add_argument(
+        '--min-hours',
+        type=float,
+        default=0.0,
+        help='Filter out developers with total hours below this threshold (default: 0 = no filter)'
+    )
 
     return parser.parse_args()
 
@@ -374,6 +380,32 @@ def export_excel(chunks_df, summary_df, output_file, inactivity_minutes=30):
     # Add total by column (total by developer)
     pivot_table.loc['TOTAL'] = pivot_table.sum(axis=0).round(2)
 
+    # Create pivot by week
+    chunks_with_week = chunks_df.copy()
+    chunks_with_week['Week'] = chunks_with_week['Start'].dt.strftime('%Y-W%U')
+    chunks_with_week['Week_Start'] = chunks_with_week['Start'].dt.to_period('W').dt.start_time
+
+    pivot_by_week = chunks_with_week.groupby(['Week', 'Week_Start', 'Developer']).agg({
+        'Duration (hours)': 'sum',
+        'Log Count': 'sum',
+        'Start': 'count'
+    }).rename(columns={'Start': 'Chunk Count'}).reset_index()
+
+    pivot_by_week = pivot_by_week.round(2)
+    pivot_by_week['Week_Start'] = pivot_by_week['Week_Start'].dt.strftime('%Y-%m-%d')
+
+    pivot_table_week = pivot_by_week.pivot_table(
+        index='Week_Start',
+        columns='Developer',
+        values='Duration (hours)',
+        aggfunc='sum',
+        fill_value=0
+    ).round(2)
+
+    # Add totals to week pivot
+    pivot_table_week['TOTAL'] = pivot_table_week.sum(axis=1).round(2)
+    pivot_table_week.loc['TOTAL'] = pivot_table_week.sum(axis=0).round(2)
+
     # Create Excel writer
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
         # Tab 1: Summary
@@ -382,13 +414,21 @@ def export_excel(chunks_df, summary_df, output_file, inactivity_minutes=30):
         # Tab 2: Pivot by Day
         pivot_table.to_excel(writer, sheet_name='Pivot - Hours by Day', index=True)
 
-        # Tab 3: Details by Day (list)
+        # Tab 3: Pivot by Week
+        pivot_table_week.to_excel(writer, sheet_name='Pivot - Hours by Week', index=True)
+
+        # Tab 4: Details by Day (list)
         pivot_by_day.to_excel(writer, sheet_name='Work by Day', index=False)
 
-        # Tab 4: All Chunks
+        # Tab 5: Details by Week
+        pivot_by_week_export = pivot_by_week[['Week_Start', 'Developer', 'Duration (hours)', 'Log Count', 'Chunk Count']]
+        pivot_by_week_export = pivot_by_week_export.sort_values(['Week_Start', 'Developer'])
+        pivot_by_week_export.to_excel(writer, sheet_name='Work by Week', index=False)
+
+        # Tab 6: All Chunks
         chunks_export.to_excel(writer, sheet_name='All Chunks', index=False)
 
-        # Tabs 5+: One for each developer
+        # Tabs 7+: One for each developer
         for developer in chunks_df['Developer'].unique():
             dev_chunks = chunks_export[chunks_export['Developer'] == developer].copy()
             dev_chunks = dev_chunks.sort_values('Start')
@@ -422,10 +462,12 @@ def export_excel(chunks_df, summary_df, output_file, inactivity_minutes=30):
         })
         metadata.to_excel(writer, sheet_name='Info', index=False)
 
-    print(f"✓ Excel exported with {5 + chunks_df['Developer'].nunique()} tabs")
+    print(f"✓ Excel exported with {7 + chunks_df['Developer'].nunique()} tabs")
     print(f"  - Summary")
     print(f"  - Pivot - Hours by Day")
+    print(f"  - Pivot - Hours by Week")
     print(f"  - Work by Day")
+    print(f"  - Work by Week")
     print(f"  - All Chunks")
     for dev in chunks_df['Developer'].unique():
         print(f"  - {dev.split('@')[0]}")
@@ -465,6 +507,21 @@ def main():
 
     # Process chunks
     chunks_df = process_work_chunks(df, args.inactivity)
+
+    # Apply minimum hours filter if set
+    if args.min_hours > 0:
+        # Calculate total hours per developer
+        dev_hours = chunks_df.groupby('Developer')['Duration (hours)'].sum()
+        # Get developers that meet the threshold
+        valid_developers = dev_hours[dev_hours >= args.min_hours].index
+        # Filter chunks to only include valid developers
+        chunks_df_original = chunks_df.copy()
+        chunks_df = chunks_df[chunks_df['Developer'].isin(valid_developers)]
+
+        # Show info about filtered developers
+        filtered_count = chunks_df_original['Developer'].nunique() - chunks_df['Developer'].nunique()
+        if filtered_count > 0:
+            print(f"\n🔍 Filtered out {filtered_count} developer(s) with less than {args.min_hours}h")
 
     # Generate report
     report = generate_report(chunks_df, args.summary)
